@@ -1,14 +1,12 @@
 name: Build
-
-on:
-  repository_dispatch:
+true:
+  repository_dispatch: null
   workflow_dispatch:
     inputs:
       ssh:
-        description: 'SSH connection to Actions'
+        description: SSH connection to Actions
         required: false
         default: 'false'
-
 env:
   REPO_URL: https://github.com/201821143044/gl-infra-builder-new
   REPO_BRANCH: main
@@ -22,43 +20,45 @@ env:
   UPLOAD_WETRANSFER: false
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
     - name: Before freeing up disk space
-      run: |
-        echo "Before freeing up disk space"
+      run: 'echo "Before freeing up disk space"
+
         echo "=============================================================================="
+
         df -hT
+
         echo "=============================================================================="
 
-    - name: "Optimize Disk Space"
-      uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
+        '
+    - name: Optimize Disk Space
+      uses: hugoalh/disk-space-optimizer-ghaction@v0.8.1
       with:
-        operate_sudo: "True"
-        general_include: ".+"
-        general_exclude: |-
-          ^GCC$
-          ^G\+\+$
-          Clang
-          LLVM
-        docker_include: ".+"
-        docker_prune: "True"
-        docker_clean: "True"
-        apt_prune: "True"
-        apt_clean: "True"
-        homebrew_prune: "True"
-        homebrew_clean: "True"
-        npm_prune: "True"
-        npm_clean: "True"
-        os_swap: "True"
+        operate_sudo: 'True'
+        general_include: .+
+        general_exclude: '^GCC$
 
+          ^G\+\+$
+
+          Clang
+
+          LLVM'
+        docker_include: .+
+        docker_prune: 'True'
+        docker_clean: 'True'
+        apt_prune: 'True'
+        apt_clean: 'True'
+        homebrew_prune: 'True'
+        homebrew_clean: 'True'
+        npm_prune: 'True'
+        npm_clean: 'True'
+        os_swap: 'True'
     - name: Freeing up disk space
       uses: wekingchen/maximize-build-space@master
-      with: 
+      with:
         root-reserve-mb: 2048
         swap-size-mb: 1
         remove-dotnet: 'true'
@@ -66,248 +66,175 @@ jobs:
         remove-haskell: 'true'
         remove-codeql: 'true'
         remove-docker-images: 'true'
-
     - name: Free up disk space complete
-      run: |
-        echo "Free up disk space complete"
-        echo "=============================================================================="
-        df -hT
+      run: 'echo "Free up disk space complete"
+
         echo "=============================================================================="
 
+        df -hT
+
+        echo "=============================================================================="
+
+        '
     - name: Checkout
       uses: actions/checkout@main
-
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d* /usr/local/lib/android* /etc/docker* /etc/firefox* /etc/mysql* /etc/php* /opt/google* /usr/share/dotnet* /usr/share/google* /usr/share/moby* /usr/share/mysql* /usr/share/php*
+      run: 'sudo rm -rf /etc/apt/sources.list.d* /usr/local/lib/android* /etc/docker* /etc/firefox* /etc/mysql* /etc/php*
+        /opt/google* /usr/share/dotnet* /usr/share/google* /usr/share/moby* /usr/share/mysql* /usr/share/php*
+
         sudo -E apt-get -qq update
+
         sudo add-apt-repository universe
+
         sudo apt-get update
+
         sudo -E apt-get -qq install $(curl -fsSL raw.githubusercontent.com/wekingchen/my-file/master/depends-ubuntuLTS)
+
         sudo -E apt-get -qq autoremove --purge
+
         sudo -E apt-get -qq clean
+
         sudo timedatectl set-timezone "$TZ"
+
         sudo chown $USER:$GROUPS $GITHUB_WORKSPACE
 
+        '
     - name: Clone source code
       working-directory: ./
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /openwrt $GITHUB_WORKSPACE/openwrt
-        cd openwrt
-        git config --global user.email "you@example.com"
-        git config --global user.name "Your Name"
-        python3 setup.py -c ./configs/config-siflower-18.x.yml && cd openwrt-18.06/siflower/openwrt-18.06
-
-        # Patch gen_config.py before it runs make defconfig.
-        # Current gl_feeds may contain package Kconfig definitions that are too new
-        # for this Siflower OpenWrt 18.06 SDK, causing recursive dependency errors.
-        python3 - <<'PY'
-        from pathlib import Path
-
-        p = Path("scripts/gen_config.py")
-        s = p.read_text()
-
-        start = "    setup_feeds(profile)
-"
-        end = "    generate_config(profile)
-"
-
-        if start not in s or end not in s:
-            raise SystemExit("Cannot find setup_feeds(profile) / generate_config(profile) in scripts/gen_config.py")
-
-        i = s.index(start)
-        j = s.index(end, i)
-
-        patch = '''    setup_feeds(profile)
-
-            # Compatibility fixes for GL-SFT1200 / Siflower OpenWrt 18.06.
-            # Run after feeds are installed, before .config and make defconfig are generated.
-            from pathlib import Path as _Path
-            import re as _re
-            import shutil as _shutil
-
-            # 1) dnsmasq-full: remove nftset / nftables-json dependency.
-            # This SDK/feed set has no nftables-json, so the default nftset option
-            # triggers Kconfig recursive dependency failures.
-            for mf in [
-                _Path("package/feeds/gl_feed_common/dnsmasq/Makefile"),
-                _Path("feeds/gl_feed_common/dnsmasq/Makefile"),
-            ]:
-                if mf.is_file():
-                    text = mf.read_text()
-                    old = text
-
-                    text = text.replace("+PACKAGE_dnsmasq_full_nftset:nftables-json", "")
-
-                    text = _re.sub(
-                        r"\n[ \t]*config PACKAGE_dnsmasq_full_nftset\n(?:[ \t]+.*\n)*?(?=\n[ \t]*config |\n[ \t]*endif|\nendef)",
-                        "\n",
-                        text,
-                        flags=_re.M,
-                    )
-
-                    mf.write_text(text)
-                    print(("Patched" if text != old else "Checked") + f" dnsmasq nftset in {mf}")
-
-            # 2) Remove unused packages that currently expose recursive Kconfig definitions.
-            # They are not needed for a basic GL-SFT1200 LuCI firmware, but Kconfig scans
-            # installed package definitions even when the packages are not selected.
-            remove_dirs = [
-                "package/feeds/gl_feed_common/samba4",
-                "feeds/gl_feed_common/samba4",
-
-                "package/feeds/gl_feed_1806/python3-cryptodome",
-                "package/feeds/gl_feed_1806/python3-influxdb",
-                "package/feeds/gl_feed_1806/python3-requests",
-                "package/feeds/gl_feed_1806/python3-aiohttp",
-                "package/feeds/gl_feed_1806/python3-aiohttp-cors",
-                "package/feeds/gl_feed_1806/python3-attrs",
-                "package/feeds/gl_feed_1806/python3-sentry-sdk",
-                "package/feeds/gl_feed_1806/python3-certifi",
-                "package/feeds/gl_feed_1806/python3-dateutil",
-                "package/feeds/gl_feed_1806/python3-six",
-                "package/feeds/gl_feed_1806/python3-jsonpath-ng",
-                "package/feeds/gl_feed_1806/python3-ply",
-
-                "feeds/gl_feed_1806/python3-cryptodome",
-                "feeds/gl_feed_1806/python3-influxdb",
-                "feeds/gl_feed_1806/python3-requests",
-                "feeds/gl_feed_1806/python3-aiohttp",
-                "feeds/gl_feed_1806/python3-aiohttp-cors",
-                "feeds/gl_feed_1806/python3-attrs",
-                "feeds/gl_feed_1806/python3-sentry-sdk",
-                "feeds/gl_feed_1806/python3-certifi",
-                "feeds/gl_feed_1806/python3-dateutil",
-                "feeds/gl_feed_1806/python3-six",
-                "feeds/gl_feed_1806/python3-jsonpath-ng",
-                "feeds/gl_feed_1806/python3-ply",
-            ]
-
-            for d in remove_dirs:
-                path = _Path(d)
-                if path.exists():
-                    if path.is_symlink() or path.is_file():
-                        path.unlink()
-                    else:
-                        _shutil.rmtree(path)
-                    print(f"Removed unused Kconfig-problem package: {d}")
-
-            generate_config(profile)
-        '''
-
-        s = s[:i] + patch + s[j + len(end):]
-        p.write_text(s)
-        print("Patched scripts/gen_config.py for SFT1200 Kconfig compatibility")
-        PY
-
-        ./scripts/gen_config.py target_siflower_gl-sft1200 luci
+      run: "df -hT $PWD\ngit clone $REPO_URL -b $REPO_BRANCH openwrt\nln -sf /openwrt $GITHUB_WORKSPACE/openwrt\ncd openwrt\n\
+        git config --global user.email \"you@example.com\"\ngit config --global user.name \"Your Name\"\npython3 setup.py\
+        \ -c ./configs/config-siflower-18.x.yml\ncd openwrt-18.06/siflower/openwrt-18.06\n\n# Patch profiles first: do not\
+        \ select dnsmasq-full from luci / sft1200 profile.\n# This avoids pulling dnsmasq_full_nftset -> nftables-json into\
+        \ .config.\nsed -i '/^[[:space:]]*-[[:space:]]*dnsmasq-full[[:space:]]*$/d' profiles/luci.yml\nsed -i '/^[[:space:]]*-[[:space:]]*dnsmasq-full[[:space:]]*$/d'\
+        \ profiles/glinet_sft1200.yml\nsed -i '/^[[:space:]]*-[[:space:]]*dnsmasq-full[[:space:]]*$/d' profiles/glinet_common.yml\n\
+        sed -i '/^[[:space:]]*-[[:space:]]*dnsmasq-full[[:space:]]*$/d' profiles/glinet_depends.yml\n\n# Patch gen_config.py\
+        \ after feeds are installed and before make defconfig.\n# Some currently fetched feed packages expose Kconfig recursion\
+        \ on this old SDK.\ncat > /tmp/patch_gen_config.py <<'PY'\nfrom pathlib import Path\n\np = Path(\"scripts/gen_config.py\"\
+        )\ns = p.read_text()\n\nneedle = \"    generate_config(profile)\\n\"\nhook = '''\n    # Compatibility hook for GL-SFT1200\
+        \ / Siflower OpenWrt 18.06.\n    # It runs after setup_feeds(profile), before generate_config() and make defconfig.\n\
+        \    call(\"find package/feeds feeds -path '*dnsmasq/Makefile' -type f -print0 2>/dev/null | xargs -0 -r sed -i 's/+PACKAGE_dnsmasq_full_nftset:nftables-json//g'\"\
+        , shell=True)\n    call(\"find package/feeds feeds -maxdepth 5 -type d -name 'samba4' -prune -exec rm -rf {} + 2>/dev/null\
+        \ || true\", shell=True)\n    call(\"find package/feeds feeds -maxdepth 5 -type d \\\\( -name 'python3-cryptodome'\
+        \ -o -name 'python3-influxdb' -o -name 'python3-requests' -o -name 'python3-aiohttp' -o -name 'python3-aiohttp-cors'\
+        \ -o -name 'python3-attrs' -o -name 'python3-sentry-sdk' -o -name 'python3-certifi' -o -name 'python3-dateutil' -o\
+        \ -name 'python3-six' -o -name 'python3-jsonpath-ng' -o -name 'python3-ply' \\\\) -prune -exec rm -rf {} + 2>/dev/null\
+        \ || true\", shell=True)\n    generate_config(profile)\n'''\n\nif \"Compatibility hook for GL-SFT1200\" not in s:\n\
+        \    if needle not in s:\n        raise SystemExit(\"generate_config(profile) not found in scripts/gen_config.py\"\
+        )\n    s = s.replace(needle, hook, 1)\n    p.write_text(s)\n    print(\"Patched scripts/gen_config.py\")\nelse:\n\
+        \    print(\"scripts/gen_config.py already patched\")\nPY\n\npython3 /tmp/patch_gen_config.py\n\n./scripts/gen_config.py\
+        \ target_siflower_gl-sft1200 luci\n"
     - name: Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/openwrt-18.06/siflower/openwrt-18.06/feeds.conf.default
+      run: '[ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/openwrt-18.06/siflower/openwrt-18.06/feeds.conf.default
+
         chmod +x $DIY_P1_SH
+
         cd openwrt/openwrt-18.06/siflower/openwrt-18.06
+
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
+        '
     - name: Update feeds
-      run: |
-        echo "Skipped: gen_config.py already sets up and installs feeds for this GL.iNet builder."
-
+      run: 'echo "Skipped: gen_config.py already sets up and installs feeds."'
     - name: Install feeds
-      run: |
-        echo "Skipped: avoid reintroducing Kconfig-incompatible feed package definitions after gen_config.py patch."
-
+      run: 'echo "Skipped: avoid reintroducing Kconfig-incompatible package definitions."'
     - name: Load custom configuration
-      run: |
-        [ -e files ] && mv files openwrt/openwrt-18.06/siflower/openwrt-18.06/files
+      run: '[ -e files ] && mv files openwrt/openwrt-18.06/siflower/openwrt-18.06/files
+
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/openwrt-18.06/siflower/openwrt-18.06/.config
+
         chmod +x $DIY_P2_SH
+
         cd openwrt/openwrt-18.06/siflower/openwrt-18.06
+
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
+        '
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
       env:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
     - name: Download package
       id: package
-      run: |
-        cd openwrt/openwrt-18.06/siflower/openwrt-18.06
+      run: 'cd openwrt/openwrt-18.06/siflower/openwrt-18.06
+
         make download -j8
-        
+
+        '
     - name: Compile the firmware
       id: compile
-      run: |
-        cd openwrt/openwrt-18.06/siflower/openwrt-18.06
-        echo -e "$(nproc) thread compile"    
-        make -j$(nproc) V=s
-        # make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
+      run: "cd openwrt/openwrt-18.06/siflower/openwrt-18.06\necho -e \"$(nproc) thread compile\"    \nmake -j$(nproc) V=s\n\
+        # make -j1 V=s\necho \"status=success\" >> $GITHUB_OUTPUT\ngrep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\\\
+        1/' > DEVICE_NAME\n[ -s DEVICE_NAME ] && echo \"DEVICE_NAME=_$(cat DEVICE_NAME)\" >> $GITHUB_ENV\necho \"FILE_DATE=_$(date\
+        \ +\"%Y%m%d%H%M\")\" >> $GITHUB_ENV\n"
     - name: Check space usage
       if: (!cancelled())
       run: df -hT
-
     - name: Upload bin directory
       uses: actions/upload-artifact@main
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/openwrt-18.06/siflower/openwrt-18.06/bin
-
     - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/openwrt-18.06/siflower/openwrt-18.06/bin/targets/*/*
+      run: 'cd openwrt/openwrt-18.06/siflower/openwrt-18.06/bin/targets/*/*
+
         rm -rf packages
+
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
         echo "status=success" >> $GITHUB_OUTPUT
 
+        '
     - name: Upload firmware directory
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
-
     - name: Upload firmware to cowtransfer
       id: cowtransfer
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
+      run: 'curl -fsSL git.io/file-transfer | sh
+
         ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+
         echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+
         echo "url=$(cat cowtransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
 
+        '
     - name: Upload firmware to WeTransfer
       id: wetransfer
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
+      run: 'curl -fsSL git.io/file-transfer | sh
+
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
+
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+
         echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
 
+        '
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+      run: 'echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+
         touch release.txt
+
         [ $UPLOAD_COWTRANSFER = true ] && echo "? [Cowtransfer](${{ steps.cowtransfer.outputs.url }})" >> release.txt
+
         [ $UPLOAD_WETRANSFER = true ] && echo "? [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
+
         echo "status=success" >> $GITHUB_OUTPUT
 
+        '
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v3
       if: steps.tag.outputs.status == 'success' && !cancelled()
@@ -317,13 +244,11 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: /home/runner/work/Actions-SFT1200/Actions-SFT1200/openwrt/openwrt-18.06/siflower/openwrt-18.06/bin/targets/siflower/openwrt-*squashfs*
-
     - name: Delete workflow runs
       uses: wekingchen/delete-workflow-runs@main
       with:
         retain_days: 30
         keep_minimum_runs: 10
-
     - name: Remove old Releases
       uses: dev-drprasad/delete-older-releases@v0.3.4
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
