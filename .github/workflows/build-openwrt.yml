@@ -110,22 +110,7 @@ jobs:
         cd openwrt
         git config --global user.email "you@example.com"
         git config --global user.name "Your Name"
-        python3 setup.py -c ./configs/config-siflower-18.x.yml && cd openwrt-18.06/siflower/openwrt-18.06
-
-        python3 - <<'PY'
-        from pathlib import Path
-        p = Path("scripts/gen_config.py")
-        s = p.read_text()
-        needle = "    setup_feeds(profile)\n"
-        insert = """    setup_feeds(profile)
-          call("sed -i '/PACKAGE_dnsmasq_full_nftset/{n; s/default y/default n/}' package/feeds/gl_feed_common/dnsmasq/Makefile 2>/dev/null || true", shell=True)
-          call("sed -i '/PACKAGE_dnsmasq_full_nftset/{n; s/default y/default n/}' feeds/gl_feed_common/dnsmasq/Makefile 2>/dev/null || true", shell=True)
-        """
-        if "PACKAGE_dnsmasq_full_nftset" not in s.split("setup_feeds(profile)", 1)[1].split("generate_config(profile)", 1)[0]:
-          s = s.replace(needle, insert, 1)
-          p.write_text(s)
-        PY
-        
+        python3 setup.py -c ./configs/config-siflower-18.x.yml && cd openwrt-18.06/siflower/openwrt-18.06        
         ./scripts/gen_config.py target_siflower_gl-sft1200 luci
 
     - name: Load custom feeds
