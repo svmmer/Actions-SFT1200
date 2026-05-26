@@ -51,7 +51,7 @@ feeds/PWpackages/naiveproxy/Makefile
 
 # 3) 修复并收尾 PKG_HASH 分支
 sed -i '/^else ifeq (\$(ARCH_PREBUILT),x86_64)/,/^endif/ c\
-else ifeq ($(ARCH_PREBUILT),x86_64)\n  PKG_HASH:=66f1d0924959fcbe749695a41747afc37b7162bb2ef2684d9976807c8b23112a\nelse ifeq ($(ARCH_PREBUILT),mipsel_24kc-static)\n  PKG_HASH:=9c3de51095df2eb61b9ada55abf7faba9151e72de5a1d03ac704111ca78f1518\nelse\n  PKG_HASH:=dummy\nendif' \
+else ifeq ($(ARCH_PREBUILT),x86_64)\n  PKG_HASH:=5fce9437c84c2cec6322753c424c5f2f5621cc91d6aa3743650e6d7b54407a44\nelse ifeq ($(ARCH_PREBUILT),mipsel_24kc-static)\n  PKG_HASH:=5801ac8a60e352ca8e57466792a0e73e1846b8f85ffdc1a9ee7d26569bef298b\nelse\n  PKG_HASH:=dummy\nendif' \
 feeds/PWpackages/naiveproxy/Makefile
 
 # 4) （推荐）让解包动作使用 $(PKG_SOURCE)，避免文件名不同步
