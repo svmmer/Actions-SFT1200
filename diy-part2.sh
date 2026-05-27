@@ -153,3 +153,14 @@ fi
 
 # 运行时库搜索路径（LD_LIBRARY_PATH 可能为空，给默认值）
 export LD_LIBRARY_PATH="staging_dir/hostpkg/lib:${LD_LIBRARY_PATH:-}"
+
+# wget-ssl 1.19.5 与替换版 OpenSSL 不兼容：
+# undefined reference to ENGINE_load_builtin_engines
+# 关闭 wget-ssl，改用普通 wget，避免链接 OpenSSL engine 符号
+sed -i '/CONFIG_PACKAGE_wget-ssl/d' .config
+sed -i '/CONFIG_PACKAGE_wget/d' .config
+
+echo '# CONFIG_PACKAGE_wget-ssl is not set' >> .config
+echo 'CONFIG_PACKAGE_wget=y' >> .config
+
+make defconfig
