@@ -55,8 +55,9 @@ echo "===== passwall actual Makefile ====="
 find package/feeds feeds -path '*luci-app-passwall/Makefile' -print
 
 echo "===== passwall dependency check ====="
-grep -R "luci-lib-base\|ucode-mod-lua\|LUCI_DEPENDS\|PKG_VERSION\|PKG_RELEASE" \
-  package/feeds feeds -n | grep luci-app-passwall || true
+grep -R --exclude-dir=.git --exclude='*.swp' \
+  "luci-lib-base\|ucode-mod-lua\|LUCI_DEPENDS\|PKG_VERSION\|PKG_RELEASE" \
+  package/feeds/PWluci/luci-app-passwall feeds/PWluci/luci-app-passwall || true
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
