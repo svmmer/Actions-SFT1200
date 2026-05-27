@@ -31,48 +31,11 @@ cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 # luci-app-passwall 回退到最后能编译的版本
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-rm -rf package/feeds/luci2/luci-app-passwall
-rm -rf package/feeds/PWluci/luci-app-passwall
-
-wget -q https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
-unzip -q openwrt-passwall.zip
-
-mkdir -p feeds/PWluci
+wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
+unzip openwrt-passwall.zip
+cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/luci2/applications/
 cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/PWluci/
-
 rm -rf openwrt-passwall.zip openwrt-passwall-af831669039648788499961dd088cfad53eca1ae
-
-./scripts/feeds uninstall luci-app-passwall || true
-./scripts/feeds install -f -p PWluci luci-app-passwall
-
-find feeds/PWluci package/feeds/PWluci -path '*luci-app-passwall/Makefile' -type f -print0 | \
-xargs -0 -r sed -i 's/+luci-lib-base//g; s/+ucode-mod-lua//g'
-
-./scripts/feeds uninstall luci-app-passwall || true
-./scripts/feeds install -f -p PWluci luci-app-passwall
-
-echo "===== passwall actual Makefile ====="
-find package/feeds feeds -path '*luci-app-passwall/Makefile' -print
-
-echo "===== passwall dependency check ====="
-grep -R --exclude-dir=.git --exclude='*.swp' \
-  "luci-lib-base\|ucode-mod-lua\|LUCI_DEPENDS\|PKG_VERSION\|PKG_RELEASE" \
-  package/feeds/PWluci/luci-app-passwall feeds/PWluci/luci-app-passwall || true
-
-# 清理新版 LuCI 组件：只处理当前已确认会失败的两个
-sed -i '/CONFIG_PACKAGE_ucode-mod-lua/d' .config
-echo '# CONFIG_PACKAGE_ucode-mod-lua is not set' >> .config
-
-sed -i '/CONFIG_PACKAGE_luci-lib-base/d' .config
-echo '# CONFIG_PACKAGE_luci-lib-base is not set' >> .config
-
-rm -rf feeds/luci2/contrib/package/ucode-mod-lua
-rm -rf package/feeds/luci2/ucode-mod-lua
-
-rm -rf feeds/luci2/libs/luci-lib-base
-rm -rf package/feeds/luci2/luci-lib-base
-
-make defconfig
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
@@ -153,28 +116,3 @@ fi
 
 # 运行时库搜索路径（LD_LIBRARY_PATH 可能为空，给默认值）
 export LD_LIBRARY_PATH="staging_dir/hostpkg/lib:${LD_LIBRARY_PATH:-}"
-
-# wget-ssl 1.19.5 与替换版 OpenSSL 不兼容：
-# undefined reference to ENGINE_load_builtin_engines
-# 关闭 wget-ssl，改用普通 wget，避免链接 OpenSSL engine 符号
-sed -i '/CONFIG_PACKAGE_wget-ssl/d' .config
-sed -i '/CONFIG_PACKAGE_wget/d' .config
-
-echo '# CONFIG_PACKAGE_wget-ssl is not set' >> .config
-echo 'CONFIG_PACKAGE_wget=y' >> .config
-
-make defconfig
-
-find feeds/luci2 package/feeds/luci2 package -path '*luci-app-zerotier/Makefile' -type f -print0 | \
-xargs -0 -r sed -i 's/+luci-compat//g'
-
-find feeds/luci2 package/feeds/luci2 package -path '*luci-app-autoreboot/Makefile' -type f -print0 | \
-xargs -0 -r sed -i 's/+luci-compat//g'
-
-./scripts/feeds uninstall luci-app-zerotier luci-app-autoreboot || true
-./scripts/feeds install -f -p luci2 luci-app-zerotier luci-app-autoreboot || true
-
-sed -i '/CONFIG_PACKAGE_luci-compat/d' .config
-echo '# CONFIG_PACKAGE_luci-compat is not set' >> .config
-
-make defconfig
