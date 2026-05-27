@@ -31,11 +31,32 @@ cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 # luci-app-passwall 回退到最后能编译的版本
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
-unzip openwrt-passwall.zip
-cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/luci2/applications/
+rm -rf package/feeds/luci2/luci-app-passwall
+rm -rf package/feeds/PWluci/luci-app-passwall
+
+wget -q https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
+unzip -q openwrt-passwall.zip
+
+mkdir -p feeds/PWluci
 cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/PWluci/
+
 rm -rf openwrt-passwall.zip openwrt-passwall-af831669039648788499961dd088cfad53eca1ae
+
+./scripts/feeds uninstall luci-app-passwall || true
+./scripts/feeds install -f -p PWluci luci-app-passwall
+
+find feeds/PWluci package/feeds/PWluci -path '*luci-app-passwall/Makefile' -type f -print0 | \
+xargs -0 -r sed -i 's/+luci-lib-base//g; s/+ucode-mod-lua//g'
+
+./scripts/feeds uninstall luci-app-passwall || true
+./scripts/feeds install -f -p PWluci luci-app-passwall
+
+echo "===== passwall actual Makefile ====="
+find package/feeds feeds -path '*luci-app-passwall/Makefile' -print
+
+echo "===== passwall dependency check ====="
+grep -R "luci-lib-base\|ucode-mod-lua\|LUCI_DEPENDS\|PKG_VERSION\|PKG_RELEASE" \
+  package/feeds feeds -n | grep luci-app-passwall || true
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
