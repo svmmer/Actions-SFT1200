@@ -165,18 +165,16 @@ echo 'CONFIG_PACKAGE_wget=y' >> .config
 
 make defconfig
 
-echo "===== selected luci compat related configs ====="
-grep -E "CONFIG_PACKAGE_(luci-compat|luci-lib-base|ucode-mod-lua|luci-app-zerotier|luci-app-autoreboot|luci-app-aliyundrive-webdav|luci-app-adguardhome|luci-app-passwall)" .config || true
+find feeds/luci2 package/feeds/luci2 package -path '*luci-app-zerotier/Makefile' -type f -print0 | \
+xargs -0 -r sed -i 's/+luci-compat//g'
 
-echo "===== selected luci apps ====="
-grep '^CONFIG_PACKAGE_luci-app-' .config || true
+find feeds/luci2 package/feeds/luci2 package -path '*luci-app-autoreboot/Makefile' -type f -print0 | \
+xargs -0 -r sed -i 's/+luci-compat//g'
 
-echo "===== who depends on luci-compat ====="
-grep -R --exclude-dir=.git --exclude='*.swp' \
-  "luci-compat" \
-  package feeds -n | grep -E "Makefile|control|depends|LUCI_DEPENDS" || true
+./scripts/feeds uninstall luci-app-zerotier luci-app-autoreboot || true
+./scripts/feeds install -f -p luci2 luci-app-zerotier luci-app-autoreboot || true
 
-echo "===== who depends on luci-lib-base / ucode-mod-lua ====="
-grep -R --exclude-dir=.git --exclude='*.swp' \
-  "luci-lib-base\|ucode-mod-lua" \
-  package feeds -n | grep -E "Makefile|control|depends|LUCI_DEPENDS" || true
+sed -i '/CONFIG_PACKAGE_luci-compat/d' .config
+echo '# CONFIG_PACKAGE_luci-compat is not set' >> .config
+
+make defconfig
