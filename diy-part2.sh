@@ -59,6 +59,21 @@ grep -R --exclude-dir=.git --exclude='*.swp' \
   "luci-lib-base\|ucode-mod-lua\|LUCI_DEPENDS\|PKG_VERSION\|PKG_RELEASE" \
   package/feeds/PWluci/luci-app-passwall feeds/PWluci/luci-app-passwall || true
 
+# 清理新版 LuCI 组件：只处理当前已确认会失败的两个
+sed -i '/CONFIG_PACKAGE_ucode-mod-lua/d' .config
+echo '# CONFIG_PACKAGE_ucode-mod-lua is not set' >> .config
+
+sed -i '/CONFIG_PACKAGE_luci-lib-base/d' .config
+echo '# CONFIG_PACKAGE_luci-lib-base is not set' >> .config
+
+rm -rf feeds/luci2/contrib/package/ucode-mod-lua
+rm -rf package/feeds/luci2/ucode-mod-lua
+
+rm -rf feeds/luci2/libs/luci-lib-base
+rm -rf package/feeds/luci2/luci-lib-base
+
+make defconfig
+
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
 sed -i '/else ifeq (\$(ARCH_PREBUILT),mips_siflower)/,+1 d' \
