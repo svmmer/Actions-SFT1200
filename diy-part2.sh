@@ -164,3 +164,19 @@ echo '# CONFIG_PACKAGE_wget-ssl is not set' >> .config
 echo 'CONFIG_PACKAGE_wget=y' >> .config
 
 make defconfig
+
+echo "===== selected luci compat related configs ====="
+grep -E "CONFIG_PACKAGE_(luci-compat|luci-lib-base|ucode-mod-lua|luci-app-zerotier|luci-app-autoreboot|luci-app-aliyundrive-webdav|luci-app-adguardhome|luci-app-passwall)" .config || true
+
+echo "===== selected luci apps ====="
+grep '^CONFIG_PACKAGE_luci-app-' .config || true
+
+echo "===== who depends on luci-compat ====="
+grep -R --exclude-dir=.git --exclude='*.swp' \
+  "luci-compat" \
+  package feeds -n | grep -E "Makefile|control|depends|LUCI_DEPENDS" || true
+
+echo "===== who depends on luci-lib-base / ucode-mod-lua ====="
+grep -R --exclude-dir=.git --exclude='*.swp' \
+  "luci-lib-base\|ucode-mod-lua" \
+  package feeds -n | grep -E "Makefile|control|depends|LUCI_DEPENDS" || true
