@@ -28,14 +28,20 @@ cp -r feeds/helloworld/dns2tcp feeds/packages2/net
 cp -r feeds/PWpackages/microsocks feeds/packages2/net
 cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 
-# luci-app-passwall 回退到最后能编译的版本
+# Pin PassWall to the pre-ucode LuCI generation compatible with OpenWrt 18.06.
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
+wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/83edb2e50a0cf440b2dcfbdff9bab5fd799859e4.zip -O openwrt-passwall.zip
 unzip openwrt-passwall.zip
-cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/luci2/applications/
-cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/PWluci/
-rm -rf openwrt-passwall.zip openwrt-passwall-af831669039648788499961dd088cfad53eca1ae
+cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/luci2/applications/
+cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/PWluci/
+rm -rf openwrt-passwall.zip openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4
+
+# OpenWrt 18.06 already provides the Lua LuCI runtime used by PassWall 4.69.
+# Its luci-compat package resolves to a modern ucode build, which cannot run
+# on this SDK, so do not pull that compatibility shim into the image.
+sed -i 's/[[:space:]]*+luci-compat//g' feeds/luci2/applications/luci-app-passwall/Makefile
+sed -i 's/[[:space:]]*+luci-compat//g' feeds/PWluci/luci-app-passwall/Makefile
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
@@ -77,10 +83,11 @@ sed -i -E \
 # haproxy去掉QUIC支持
 sed -i 's/^[[:space:]]*ADDON+=USE_QUIC=1/# &/' feeds/gl_feed_1806/haproxy/Makefile
 
-# 修改golang源码以编译xray1.8.8+版本
-rm -rf feeds/gl_feed_common/golang
-git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/gl_feed_common/golang
-sed -i '/-linkmode external \\/d' feeds/gl_feed_common/golang/golang-package.mk
+# Xray's Makefile includes feeds/packages/lang/golang directly. Replace that
+# exact package; updating gl_feed_common/golang leaves Xray on SDK Go 1.10.
+rm -rf feeds/packages/lang/golang
+git clone --depth=1 https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
+sed -i '/-linkmode external \\/d' feeds/packages/lang/golang/golang-package.mk
 
 # 增加阿里云盘WebDAV 及其 LuCI
 set -euo pipefail

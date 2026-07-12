@@ -11,6 +11,9 @@
 name: Build OpenWrt
 
 on:
+  schedule:
+    # GitHub Actions cron uses UTC: 19:00 UTC = 03:00 Asia/Shanghai.
+    - cron: '0 19 * * *'
   repository_dispatch:
   workflow_dispatch:
     inputs:
@@ -18,6 +21,11 @@ on:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
+
+# Allow the workflow to publish firmware releases and prune old workflow runs.
+permissions:
+  contents: write
+  actions: write
 
 env:
   REPO_URL: https://github.com/201821143044/gl-infra-builder-new
@@ -110,8 +118,9 @@ jobs:
         cd openwrt
         git config --global user.email "you@example.com"
         git config --global user.name "Your Name"
-        python3 setup.py -c ./configs/config-siflower-18.x.yml && cd openwrt-18.06/siflower/openwrt-18.06        
-        ./scripts/gen_config.py target_siflower_gl-sft1200 luci
+        # Prepare the patched Siflower SDK only. The repository .config is
+        # loaded later, after custom feeds have replaced the SDK defaults.
+        python3 setup.py -c ./configs/config-siflower-18.x.yml
 
     - name: Load custom feeds
       run: |
@@ -206,7 +215,7 @@ jobs:
 
     - name: Generate release tag
       id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
