@@ -19,7 +19,6 @@ rm -rf feeds/packages2/net/chinadns-ng
 rm -rf feeds/packages2/net/dns2socks
 rm -rf feeds/packages2/net/dns2tcp
 rm -rf feeds/packages2/net/microsocks
-rm -rf feeds/packages/net/shadowsocks-libev
 cp -r feeds/packages2/lang/rust feeds/packages/lang
 cp -r feeds/PWpackages/xray-core feeds/packages2/net
 cp -r feeds/PWpackages/v2ray-geodata feeds/packages2/net
@@ -28,7 +27,6 @@ cp -r feeds/PWpackages/chinadns-ng feeds/packages2/net
 cp -r feeds/PWpackages/dns2socks feeds/packages2/net
 cp -r feeds/helloworld/dns2tcp feeds/packages2/net
 cp -r feeds/PWpackages/microsocks feeds/packages2/net
-cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 
 # Pin PassWall to a reproducible upstream revision. OpenWrt 18.06 already
 # supplies the legacy Lua LuCI APIs, so the modern luci-compat shim is removed
