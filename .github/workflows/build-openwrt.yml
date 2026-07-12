@@ -19,6 +19,11 @@ on:
         required: false
         default: 'false'
 
+# Allow the workflow to publish firmware releases and prune old workflow runs.
+permissions:
+  contents: write
+  actions: write
+
 env:
   REPO_URL: https://github.com/201821143044/gl-infra-builder-new
   REPO_BRANCH: main
