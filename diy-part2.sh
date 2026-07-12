@@ -37,6 +37,12 @@ cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwal
 cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/PWluci/
 rm -rf openwrt-passwall.zip openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4
 
+# OpenWrt 18.06 already provides the Lua LuCI runtime used by PassWall 4.69.
+# Its luci-compat package resolves to a modern ucode build, which cannot run
+# on this SDK, so do not pull that compatibility shim into the image.
+sed -i 's/[[:space:]]*+luci-compat//g' feeds/luci2/applications/luci-app-passwall/Makefile
+sed -i 's/[[:space:]]*+luci-compat//g' feeds/PWluci/luci-app-passwall/Makefile
+
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
 sed -i '/else ifeq (\$(ARCH_PREBUILT),mips_siflower)/,+1 d' \
