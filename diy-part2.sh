@@ -10,6 +10,8 @@
 # Description: OpenWrt DIY script part 2 (After Update feeds)
 #
 
+set -euo pipefail
+
 rm -rf feeds/packages2/net/xray-core
 rm -rf feeds/packages2/net/v2ray-geodata
 rm -rf feeds/packages2/net/sing-box
@@ -31,11 +33,14 @@ cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 # Pin PassWall to the pre-ucode LuCI generation compatible with OpenWrt 18.06.
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/83edb2e50a0cf440b2dcfbdff9bab5fd799859e4.zip -O openwrt-passwall.zip
+wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/d1e618220a9a0a4b73d536101f452a2f4cf14861.zip -O openwrt-passwall.zip
 unzip openwrt-passwall.zip
-cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/luci2/applications/
-cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/PWluci/
-rm -rf openwrt-passwall.zip openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4
+PASSWALL_SOURCE="openwrt-passwall-d1e618220a9a0a4b73d536101f452a2f4cf14861/luci-app-passwall"
+test -f "$PASSWALL_SOURCE/Makefile"
+grep -q '^PKG_VERSION:=4.69-4$' "$PASSWALL_SOURCE/Makefile"
+cp -r "$PASSWALL_SOURCE" feeds/luci2/applications/
+cp -r "$PASSWALL_SOURCE" feeds/PWluci/
+rm -rf openwrt-passwall.zip openwrt-passwall-d1e618220a9a0a4b73d536101f452a2f4cf14861
 
 # OpenWrt 18.06 already provides the Lua LuCI runtime used by PassWall 4.69.
 # Its luci-compat package resolves to a modern ucode build, which cannot run
@@ -90,7 +95,6 @@ git clone --depth=1 https://github.com/sbwml/packages_lang_golang -b 26.x feeds/
 sed -i '/-linkmode external \\/d' feeds/packages/lang/golang/golang-package.mk
 
 # 增加阿里云盘WebDAV 及其 LuCI
-set -euo pipefail
 rm -rf feeds/packages2/multimedia/aliyundrive-webdav feeds/luci2/applications/luci-app-aliyundrive-webdav
 git clone --depth=1 https://github.com/messense/aliyundrive-webdav.git aliyundrive-webdav
 cp -a aliyundrive-webdav/openwrt/aliyundrive-webdav feeds/packages2/multimedia
