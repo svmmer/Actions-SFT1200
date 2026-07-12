@@ -11,6 +11,9 @@
 name: Build OpenWrt
 
 on:
+  schedule:
+    # GitHub Actions cron uses UTC: 19:00 UTC = 03:00 Asia/Shanghai.
+    - cron: '0 19 * * *'
   repository_dispatch:
   workflow_dispatch:
     inputs:
