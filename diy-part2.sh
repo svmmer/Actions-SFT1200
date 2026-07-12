@@ -28,14 +28,14 @@ cp -r feeds/helloworld/dns2tcp feeds/packages2/net
 cp -r feeds/PWpackages/microsocks feeds/packages2/net
 cp -r feeds/PWpackages/shadowsocks-libev feeds/packages/net
 
-# luci-app-passwall 回退到最后能编译的版本
+# Pin PassWall to the pre-ucode LuCI generation compatible with OpenWrt 18.06.
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/af831669039648788499961dd088cfad53eca1ae.zip -O openwrt-passwall.zip
+wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/83edb2e50a0cf440b2dcfbdff9bab5fd799859e4.zip -O openwrt-passwall.zip
 unzip openwrt-passwall.zip
-cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/luci2/applications/
-cp -r openwrt-passwall-af831669039648788499961dd088cfad53eca1ae/luci-app-passwall feeds/PWluci/
-rm -rf openwrt-passwall.zip openwrt-passwall-af831669039648788499961dd088cfad53eca1ae
+cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/luci2/applications/
+cp -r openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4/luci-app-passwall feeds/PWluci/
+rm -rf openwrt-passwall.zip openwrt-passwall-83edb2e50a0cf440b2dcfbdff9bab5fd799859e4
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
