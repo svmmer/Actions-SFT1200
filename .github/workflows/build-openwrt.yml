@@ -162,6 +162,11 @@ jobs:
         cd openwrt/openwrt-18.06/siflower/openwrt-18.06
         echo -e "$(nproc) thread compile"    
         make -j$(nproc) V=s
+        PASSWALL_STATUS=$(find staging_dir -path '*/root-*/usr/lib/opkg/status' -type f -print -quit)
+        test -n "$PASSWALL_STATUS"
+        grep -q '^Package: luci-app-passwall$' "$PASSWALL_STATUS"
+        grep -A2 '^Package: luci-app-passwall$' "$PASSWALL_STATUS"
+        grep -A2 '^Package: xray-core$' "$PASSWALL_STATUS"
         # make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
