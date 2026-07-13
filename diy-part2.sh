@@ -73,10 +73,11 @@ rm -rf feeds/packages/devel/diffutils
 rm -rf feeds/packages/utils/jq
 rm -rf feeds/gl_feed_common/zerotier
 rm -rf feeds/gl_feed_1806/haproxy
+mkdir -p feeds/gl_feed_common feeds/gl_feed_1806
 cp -r feeds/packages2/devel/diffutils feeds/packages/devel
 cp -r feeds/packages2/utils/jq feeds/packages/utils
-cp -r feeds/packages2/net/zerotier feeds/gl_feed_common
-cp -r feeds/packages2/net/haproxy feeds/gl_feed_1806
+cp -r feeds/packages2/net/zerotier feeds/gl_feed_common/zerotier
+cp -r feeds/packages2/net/haproxy feeds/gl_feed_1806/haproxy
 
 # haproxy修改依赖支持到lua5.4
 sed -i -E \
