@@ -37,7 +37,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .upstream-version-marker
-          key: passwall-${{ steps.versions.outputs.passwall }}-xray-${{ steps.versions.outputs.xray }}
+          key: upstream-v2-passwall-${{ steps.versions.outputs.passwall }}-xray-${{ steps.versions.outputs.xray }}
 
       - name: Save current version marker
         if: steps.version-cache.outputs.cache-hit != 'true'
@@ -50,4 +50,4 @@ jobs:
         if: steps.version-cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build-openwrt.yml --ref main
+        run: gh workflow run build-openwrt.yml --repo "${{ github.repository }}" --ref main
