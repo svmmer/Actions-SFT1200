@@ -170,11 +170,14 @@ jobs:
           echo "Parallel build failed; retrying incrementally with serialized image rules"
           make -j1 V=s
         fi
-        PASSWALL_STATUS=$(find staging_dir -path '*/root-*/usr/lib/opkg/status' -type f -print -quit)
+        PASSWALL_STATUS=$(find build_dir -path '*/root-*/usr/lib/opkg/status' \
+          ! -path '*/root.orig-*' -type f -print -quit)
         test -n "$PASSWALL_STATUS"
-        grep -q '^Package: luci-app-passwall$' "$PASSWALL_STATUS"
-        grep -A2 '^Package: luci-app-passwall$' "$PASSWALL_STATUS"
-        grep -A2 '^Package: xray-core$' "$PASSWALL_STATUS"
+        ROOTFS_DIR=${PASSWALL_STATUS%/usr/lib/opkg/status}
+        awk 'BEGIN { RS="" } /(^|\n)Package: luci-app-passwall(\n|$)/ && /(^|\n)Version: 26\.7\.1-1(\n|$)/ { found=1 } END { exit !found }' "$PASSWALL_STATUS"
+        awk 'BEGIN { RS="" } /(^|\n)Package: xray-core(\n|$)/ { found=1 } END { exit !found }' "$PASSWALL_STATUS"
+        test -x "$ROOTFS_DIR/usr/bin/xray"
+        awk 'BEGIN { RS="" } /(^|\n)Package: luci-app-passwall(\n|$)/ || /(^|\n)Package: xray-core(\n|$)/ { print }' "$PASSWALL_STATUS"
         # make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
