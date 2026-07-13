@@ -12,6 +12,18 @@
 
 set -euo pipefail
 
+# Install the final Argon release for the legacy Lua-based LuCI shipped by
+# OpenWrt 18.06. Pin the upstream revision so daily builds stay reproducible.
+ARGON_REV="d6dd165802938d455e4967aefd8a95e47773b5d7"
+rm -rf package/luci-theme-argon "luci-theme-argon-${ARGON_REV}" luci-theme-argon.zip
+wget "https://github.com/jerrykuku/luci-theme-argon/archive/${ARGON_REV}.zip" \
+  -O luci-theme-argon.zip
+unzip -q luci-theme-argon.zip
+test -f "luci-theme-argon-${ARGON_REV}/Makefile"
+grep -q '^PKG_VERSION:=1.8.4$' "luci-theme-argon-${ARGON_REV}/Makefile"
+mv "luci-theme-argon-${ARGON_REV}" package/luci-theme-argon
+rm -f luci-theme-argon.zip
+
 rm -rf feeds/packages2/net/xray-core
 rm -rf feeds/packages2/net/v2ray-geodata
 rm -rf feeds/packages2/net/sing-box
