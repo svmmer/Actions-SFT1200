@@ -161,7 +161,15 @@ jobs:
       run: |
         cd openwrt/openwrt-18.06/siflower/openwrt-18.06
         echo -e "$(nproc) thread compile"    
-        make -j$(nproc) V=s
+        # The vendor Siflower 18.06 image rules build factory and sysupgrade
+        # images through the same temporary kernel.bin.  In a parallel build,
+        # check-size can race the command that creates that file and falsely
+        # report a sub-4 MiB kernel as "too big".  Keep the fast parallel build,
+        # then retry incrementally with one job so the image rules are ordered.
+        if ! make -j$(nproc) V=s; then
+          echo "Parallel build failed; retrying incrementally with serialized image rules"
+          make -j1 V=s
+        fi
         PASSWALL_STATUS=$(find staging_dir -path '*/root-*/usr/lib/opkg/status' -type f -print -quit)
         test -n "$PASSWALL_STATUS"
         grep -q '^Package: luci-app-passwall$' "$PASSWALL_STATUS"
