@@ -40,19 +40,22 @@ cp -r feeds/PWpackages/dns2socks feeds/packages2/net
 cp -r feeds/helloworld/dns2tcp feeds/packages2/net
 cp -r feeds/PWpackages/microsocks feeds/packages2/net
 
-# Pin PassWall to a reproducible upstream revision. OpenWrt 18.06 already
-# supplies the legacy Lua LuCI APIs, so the modern luci-compat shim is removed
-# below while keeping the latest PassWall application code.
+# Fetch the latest PassWall application after the lightweight version checker
+# detects a release change. OpenWrt 18.06 supplies the legacy Lua LuCI APIs,
+# so the modern luci-compat shim is removed below.
 rm -rf feeds/luci2/applications/luci-app-passwall
 rm -rf feeds/PWluci/luci-app-passwall
-wget https://github.com/Openwrt-Passwall/openwrt-passwall/archive/3dfe5a612b491e07ec90e1135f468eef44b98b9b.zip -O openwrt-passwall.zip
-unzip openwrt-passwall.zip
-PASSWALL_SOURCE="openwrt-passwall-3dfe5a612b491e07ec90e1135f468eef44b98b9b/luci-app-passwall"
+rm -rf openwrt-passwall
+git clone --depth=1 --branch main \
+  https://github.com/Openwrt-Passwall/openwrt-passwall.git openwrt-passwall
+PASSWALL_SOURCE="openwrt-passwall/luci-app-passwall"
 test -f "$PASSWALL_SOURCE/Makefile"
-grep -q '^PKG_VERSION:=26.7.1$' "$PASSWALL_SOURCE/Makefile"
+PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$PASSWALL_SOURCE/Makefile" | head -n1)
+test -n "$PASSWALL_VERSION"
+echo "Building luci-app-passwall ${PASSWALL_VERSION}"
 cp -r "$PASSWALL_SOURCE" feeds/luci2/applications/
 cp -r "$PASSWALL_SOURCE" feeds/PWluci/
-rm -rf openwrt-passwall.zip openwrt-passwall-3dfe5a612b491e07ec90e1135f468eef44b98b9b
+rm -rf openwrt-passwall
 
 # OpenWrt 18.06 already provides the Lua LuCI runtime used by PassWall.
 # Its luci-compat package resolves to a modern ucode build, which cannot run

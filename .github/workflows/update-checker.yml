@@ -1,58 +1,53 @@
-#
-# Copyright (c) 2019-2021 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# File: .github/workflows/update-checker.yml
-# Description: Source code update checker
-#
-
-name: Update Checker
-
-env:
-  REPO_URL: https://github.com/Openwrt-Passwall/openwrt-passwall-packages
-  REPO_BRANCH: main
+name: PassWall and Xray Version Checker
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: 40 */12 * * *
+    # Lightweight version check every 12 hours.
+    - cron: '40 */12 * * *'
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-22.04
     steps:
+      - name: Read upstream versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASSWALL_MAKEFILE=$(curl -fsSL \
+            https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall/main/luci-app-passwall/Makefile)
+          XRAY_MAKEFILE=$(curl -fsSL \
+            https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/main/xray-core/Makefile)
+          PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$PASSWALL_MAKEFILE" | head -n1)
+          XRAY_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$XRAY_MAKEFILE" | head -n1)
+          test -n "$PASSWALL_VERSION"
+          test -n "$XRAY_VERSION"
+          echo "passwall=$PASSWALL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "xray=$XRAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "PassWall: $PASSWALL_VERSION"
+          echo "Xray: $XRAY_VERSION"
 
-    - name: Get Commit Hash
-      id: getHash
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH .
-        echo "::set-output name=commitHash::$(git rev-parse HEAD)"
+      - name: Check whether either version changed
+        id: version-cache
+        uses: actions/cache@v4
+        with:
+          path: .upstream-version-marker
+          key: passwall-${{ steps.versions.outputs.passwall }}-xray-${{ steps.versions.outputs.xray }}
 
-    - name: Compare Commit Hash
-      id: cacheHash
-      uses: actions/cache@v4.2.0
-      with:
-        path: .commitHash
-        key: HEAD-${{ steps.getHash.outputs.commitHash }}
+      - name: Save current version marker
+        if: steps.version-cache.outputs.cache-hit != 'true'
+        run: |
+          printf 'PassWall=%s\nXray=%s\n' \
+            '${{ steps.versions.outputs.passwall }}' \
+            '${{ steps.versions.outputs.xray }}' > .upstream-version-marker
 
-    - name: Save New Commit Hash
-      if: steps.cacheHash.outputs.cache-hit != 'true'
-      run: |
-        echo ${{ steps.getHash.outputs.commitHash }} | tee .commitHash
-
-    - name: Trigger build
-      if: steps.cacheHash.outputs.cache-hit != 'true'
-      uses: peter-evans/repository-dispatch@v1
-      with:
-        token: ${{ secrets.ACTIONS_TRIGGER_PAT }}
-        event-type: Source Code Update
-
-    - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 10 
+      - name: Trigger firmware build for new version
+        if: steps.version-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-openwrt.yml --ref main
