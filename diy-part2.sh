@@ -40,6 +40,15 @@ cp -r feeds/PWpackages/dns2socks feeds/packages2/net
 cp -r feeds/helloworld/dns2tcp feeds/packages2/net
 cp -r feeds/PWpackages/microsocks feeds/packages2/net
 
+# PWpackages commit 92a4ba2 switched shadowsocksr-libev to a bundled source
+# tree but imported configure without its executable bit. OpenWrt 18.06 only
+# runs configure when it is executable, otherwise the package reaches make
+# without a generated Makefile.
+SSR_CONFIGURE="feeds/PWpackages/shadowsocksr-libev/src/configure"
+test -f "$SSR_CONFIGURE"
+chmod +x "$SSR_CONFIGURE"
+test -x "$SSR_CONFIGURE"
+
 # Fetch the latest PassWall application after the lightweight version checker
 # detects a release change. OpenWrt 18.06 supplies the legacy Lua LuCI APIs,
 # so the modern luci-compat shim is removed below.
