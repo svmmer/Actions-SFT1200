@@ -8,6 +8,28 @@
 
 A template for building OpenWrt with GitHub Actions
 
+## Stable sources and automatic updates
+
+Production firmware is built from the immutable revisions in
+[`sources.lock`](sources.lock). The Siflower builder, custom feeds, PassWall,
+PWpackages/Xray, Go toolchain, and directly cloned packages are all checked
+against full commit SHAs. Small compatibility files and the existing binary
+inputs are kept in this repository and verified before use.
+
+The `Validate and promote upstream updates` workflow checks PassWall,
+PWpackages, and the Go toolchain twice a day. It updates an automation-owned
+candidate branch and runs the complete firmware build without publishing a
+Release. Only a successful candidate is fast-forwarded to `main`; the workflow
+then starts a production Release build. A failed candidate leaves both
+`sources.lock` and the last working production firmware unchanged and is
+retried on the next check.
+
+This design prevents floating upstream branches from breaking scheduled
+production builds. It is reproducible, but not fully offline: Git repositories
+and package archives are still downloaded by immutable revision. Complete
+upstream independence would additionally require mirroring the locked feed
+snapshots and OpenWrt `dl/` cache.
+
 ## Usage
 
 - Click the [Use this template](https://github.com/P3TERX/Actions-OpenWrt/generate) button to create a new repository.
