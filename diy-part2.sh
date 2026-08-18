@@ -12,11 +12,56 @@
 
 set -euo pipefail
 
+REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SOURCE_LOCK_FILE="${SOURCE_LOCK_FILE:-$REPO_ROOT/sources.lock}"
+python3 "$REPO_ROOT/scripts/source-lock.py" validate "$SOURCE_LOCK_FILE"
+# shellcheck source=/dev/null
+source "$SOURCE_LOCK_FILE"
+
+check_revision() {
+  local directory="$1"
+  local expected_revision="$2"
+  local actual_revision
+  actual_revision=$(git -C "$directory" rev-parse HEAD)
+  test "$actual_revision" = "$expected_revision"
+  echo "Locked source: $directory @ $actual_revision"
+}
+
+clone_revision() {
+  local repository="$1"
+  local branch="$2"
+  local revision="$3"
+  local destination="$4"
+  git init "$destination"
+  git -C "$destination" remote add origin "$repository"
+  # GitHub accepts a shallow fetch of a reachable full SHA. Fall back to the
+  # complete locked branch if a host ever disables that optimization.
+  if ! git -C "$destination" fetch --depth=1 origin "$revision"; then
+    git -C "$destination" fetch origin "$branch"
+  fi
+  git -C "$destination" checkout --detach "$revision"
+  check_revision "$destination" "$revision"
+}
+
+# Fail before applying local compatibility patches if any feed ignored its
+# immutable ^SHA definition.
+git merge-base --is-ancestor "$SIFLOWER_SDK_REV" HEAD
+echo "Locked SDK base: $SIFLOWER_SDK_REV"
+check_revision feeds/packages "$BASE_PACKAGES_REV"
+check_revision feeds/luci "$BASE_LUCI_REV"
+check_revision feeds/routing "$BASE_ROUTING_REV"
+check_revision feeds/telephony "$BASE_TELEPHONY_REV"
+check_revision feeds/gl "$GL_FEED_REV"
+check_revision feeds/luci2 "$LUCI2_REV"
+check_revision feeds/packages2 "$PACKAGES2_REV"
+check_revision feeds/PWpackages "$PWPACKAGES_REV"
+check_revision feeds/PWluci "$PASSWALL_REV"
+check_revision feeds/helloworld "$HELLOWORLD_REV"
+
 # Install the final Argon release for the legacy Lua-based LuCI shipped by
 # OpenWrt 18.06. Pin the upstream revision so daily builds stay reproducible.
-ARGON_REV="d6dd165802938d455e4967aefd8a95e47773b5d7"
 rm -rf package/luci-theme-argon "luci-theme-argon-${ARGON_REV}" luci-theme-argon.zip
-wget "https://github.com/jerrykuku/luci-theme-argon/archive/${ARGON_REV}.zip" \
+wget "${ARGON_REPO%.git}/archive/${ARGON_REV}.zip" \
   -O luci-theme-argon.zip
 unzip -q luci-theme-argon.zip
 test -f "luci-theme-argon-${ARGON_REV}/Makefile"
@@ -49,22 +94,26 @@ test -f "$SSR_CONFIGURE"
 chmod +x "$SSR_CONFIGURE"
 test -x "$SSR_CONFIGURE"
 
-# Fetch the latest PassWall application after the lightweight version checker
-# detects a release change. OpenWrt 18.06 supplies the legacy Lua LuCI APIs,
-# so the modern luci-compat shim is removed below.
+# Use the exact PassWall revision already checked out by the locked PWluci
+# feed. OpenWrt 18.06 supplies the legacy Lua LuCI APIs, so the modern
+# luci-compat shim is removed below.
 rm -rf feeds/luci2/applications/luci-app-passwall
-rm -rf feeds/PWluci/luci-app-passwall
-rm -rf openwrt-passwall
-git clone --depth=1 --branch main \
-  https://github.com/Openwrt-Passwall/openwrt-passwall.git openwrt-passwall
-PASSWALL_SOURCE="openwrt-passwall/luci-app-passwall"
+PASSWALL_SOURCE="feeds/PWluci/luci-app-passwall"
 test -f "$PASSWALL_SOURCE/Makefile"
-PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$PASSWALL_SOURCE/Makefile" | head -n1)
-test -n "$PASSWALL_VERSION"
-echo "Building luci-app-passwall ${PASSWALL_VERSION}"
+ACTUAL_PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$PASSWALL_SOURCE/Makefile" | head -n1)
+ACTUAL_PASSWALL_RELEASE=$(sed -n 's/^PKG_RELEASE:=//p' "$PASSWALL_SOURCE/Makefile" | head -n1)
+test "$ACTUAL_PASSWALL_VERSION" = "$PASSWALL_PKG_VERSION"
+test "$ACTUAL_PASSWALL_RELEASE" = "$PASSWALL_PKG_RELEASE"
+echo "Building luci-app-passwall ${ACTUAL_PASSWALL_VERSION}-${ACTUAL_PASSWALL_RELEASE}"
 cp -r "$PASSWALL_SOURCE" feeds/luci2/applications/
-cp -r "$PASSWALL_SOURCE" feeds/PWluci/
-rm -rf openwrt-passwall
+
+XRAY_SOURCE="feeds/PWpackages/xray-core/Makefile"
+test -f "$XRAY_SOURCE"
+ACTUAL_XRAY_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$XRAY_SOURCE" | head -n1)
+ACTUAL_XRAY_RELEASE=$(sed -n 's/^PKG_RELEASE:=//p' "$XRAY_SOURCE" | head -n1)
+test "$ACTUAL_XRAY_VERSION" = "$XRAY_PKG_VERSION"
+test "$ACTUAL_XRAY_RELEASE" = "$XRAY_PKG_RELEASE"
+echo "Building xray-core ${ACTUAL_XRAY_VERSION}-${ACTUAL_XRAY_RELEASE}"
 
 # OpenWrt 18.06 already provides the Lua LuCI runtime used by PassWall.
 # Its luci-compat package resolves to a modern ucode build, which cannot run
@@ -74,22 +123,26 @@ sed -i 's/[[:space:]]*+luci-compat//g' feeds/PWluci/luci-app-passwall/Makefile
 
 # 修改naiveproxy编译源码以支持mips_siflower
 # 1) 先删除（如果有）之前误插入的 mips_siflower 映射两行，避免重复
+# shellcheck disable=SC2016 # Keep OpenWrt make variables literal for sed.
 sed -i '/else ifeq (\$(ARCH_PREBUILT),mips_siflower)/,+1 d' \
 feeds/PWpackages/naiveproxy/Makefile
 
 # 2) 把 mips_siflower -> mipsel_24kc-static 正确插到 “ARCH_PREBUILT:=riscv64” 这一行之后
 #    （注意：锚点是赋值行，而不是 “riscv64_riscv64)” 的条件行）
+# shellcheck disable=SC2016 # Keep OpenWrt make variables literal for sed.
 sed -i '/^[[:space:]]*ARCH_PREBUILT:=riscv64[[:space:]]*$/a\
 else ifeq ($(ARCH_PREBUILT),mips_siflower)\
   ARCH_PREBUILT:=mipsel_24kc-static' \
 feeds/PWpackages/naiveproxy/Makefile
 
 # 3) 修复并收尾 PKG_HASH 分支
+# shellcheck disable=SC2016 # Keep OpenWrt make variables literal for sed.
 sed -i '/^else ifeq (\$(ARCH_PREBUILT),x86_64)/,/^endif/ c\
 else ifeq ($(ARCH_PREBUILT),x86_64)\n  PKG_HASH:=5fce9437c84c2cec6322753c424c5f2f5621cc91d6aa3743650e6d7b54407a44\nelse ifeq ($(ARCH_PREBUILT),mipsel_24kc-static)\n  PKG_HASH:=5801ac8a60e352ca8e57466792a0e73e1846b8f85ffdc1a9ee7d26569bef298b\nelse\n  PKG_HASH:=dummy\nendif' \
 feeds/PWpackages/naiveproxy/Makefile
 
 # 4) （推荐）让解包动作使用 $(PKG_SOURCE)，避免文件名不同步
+# shellcheck disable=SC2016 # Keep OpenWrt make variables literal for sed.
 sed -i 's|-xJf $(DL_DIR)/naiveproxy-v$(PKG_VERSION)-$(PKG_RELEASE)-openwrt-$(ARCH_PREBUILT).tar.xz|-xJf $(DL_DIR)/$(PKG_SOURCE)|' \
 feeds/PWpackages/naiveproxy/Makefile
 
@@ -116,27 +169,41 @@ sed -i 's/^[[:space:]]*ADDON+=USE_QUIC=1/# &/' feeds/gl_feed_1806/haproxy/Makefi
 # Xray's Makefile includes feeds/packages/lang/golang directly. Replace that
 # exact package; updating gl_feed_common/golang leaves Xray on SDK Go 1.10.
 rm -rf feeds/packages/lang/golang
-git clone --depth=1 https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
+clone_revision \
+  "$GOLANG_REPO" "$GOLANG_BRANCH" "$GOLANG_REV" \
+  feeds/packages/lang/golang
 sed -i '/-linkmode external \\/d' feeds/packages/lang/golang/golang-package.mk
 
 # 增加阿里云盘WebDAV 及其 LuCI
 rm -rf feeds/packages2/multimedia/aliyundrive-webdav feeds/luci2/applications/luci-app-aliyundrive-webdav
-git clone --depth=1 https://github.com/messense/aliyundrive-webdav.git aliyundrive-webdav
+rm -rf aliyundrive-webdav
+clone_revision \
+  "$ALIYUNDRIVE_REPO" "$ALIYUNDRIVE_BRANCH" "$ALIYUNDRIVE_REV" \
+  aliyundrive-webdav
 cp -a aliyundrive-webdav/openwrt/aliyundrive-webdav feeds/packages2/multimedia
 cp -a aliyundrive-webdav/openwrt/luci-app-aliyundrive-webdav feeds/luci2/applications
 rm -rf aliyundrive-webdav
 
-git clone https://github.com/coolsnowwolf/lede.git
+rm -rf lede
+clone_revision "$LEDE_REPO" "$LEDE_BRANCH" "$LEDE_REV" lede
 cp -r lede/tools/ninja tools
 cp -r lede/package/lean/adbyby package
 rm -rf lede
 
-git clone https://github.com/kongfl888/luci-app-adguardhome.git package/luci-app-adguardhome
+rm -rf package/luci-app-adguardhome
+clone_revision \
+  "$ADGUARDHOME_REPO" "$ADGUARDHOME_BRANCH" "$ADGUARDHOME_REV" \
+  package/luci-app-adguardhome
 
 rm -rf package/libs/openssl
 rm -rf package/libs/ustream-ssl
-wget 'https://github.com/wekingchen/Actions-SFT1200/raw/main/libs.zip' --no-check-certificate && unzip -o libs.zip && rm -f libs.zip
-wget https://github.com/wekingchen/Actions-SFT1200/raw/main/board-2.bin.ddcec9efd245da9365c474f513a855a55f3ac7fe -P dl/
+echo "${LIBS_ZIP_SHA256}  $REPO_ROOT/libs.zip" | sha256sum --check --strict
+echo "${BOARD_BLOB_SHA256}  $REPO_ROOT/board-2.bin.ddcec9efd245da9365c474f513a855a55f3ac7fe" | sha256sum --check --strict
+unzip -oq "$REPO_ROOT/libs.zip" -d .
+mkdir -p dl
+install -m 0644 \
+  "$REPO_ROOT/board-2.bin.ddcec9efd245da9365c474f513a855a55f3ac7fe" \
+  dl/board-2.bin.ddcec9efd245da9365c474f513a855a55f3ac7fe
 
 # 修复 host ncurses 静态库 relocation 错误
 sed -i '/^PKG_BUILD_DEPENDS:=ncurses\/host/a HOST_CFLAGS += -fPIC' package/libs/ncurses/Makefile

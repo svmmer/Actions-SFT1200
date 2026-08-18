@@ -19,31 +19,45 @@ on:
     inputs:
       ssh:
         description: 'SSH connection to Actions'
+        type: boolean
         required: false
-        default: 'false'
+        default: false
+      publish_release:
+        description: 'Publish firmware to Releases (main branch only)'
+        type: boolean
+        required: false
+        default: true
+      expected_sha:
+        description: 'Optional commit guard used by the automatic updater'
+        type: string
+        required: false
+        default: ''
 
-# Allow the workflow to publish firmware releases and prune old workflow runs.
-permissions:
-  contents: write
-  actions: write
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: false
+
+# Compilation runs with a read-only token. Only the post-build publishing job
+# receives write permission, and candidate branches never enter that job.
+permissions: {}
 
 env:
-  REPO_URL: https://github.com/201821143044/gl-infra-builder-new
-  REPO_BRANCH: main
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: true
-  UPLOAD_FIRMWARE: false
-  UPLOAD_COWTRANSFER: false
-  UPLOAD_WETRANSFER: false
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.compile.outputs.status }}
+      passwall_version: ${{ steps.compile.outputs.passwall_version }}
+      xray_version: ${{ steps.compile.outputs.xray_version }}
 
     steps:
     - name: Before freeing up disk space
@@ -54,7 +68,7 @@ jobs:
         echo "=============================================================================="
 
     - name: "Optimize Disk Space"
-      uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
+      uses: "hugoalh/disk-space-optimizer-ghaction@473a0f269fe1dd4642c48518a323b231680428aa"
       with:
         operate_sudo: "True"
         general_include: ".+"
@@ -75,7 +89,7 @@ jobs:
         os_swap: "True"
 
     - name: Freeing up disk space
-      uses: wekingchen/maximize-build-space@master
+      uses: wekingchen/maximize-build-space@1c1530a36b461912708c22fee2eae0a6353052eb
       with: 
         root-reserve-mb: 2048
         swap-size-mb: 1
@@ -93,7 +107,19 @@ jobs:
         echo "=============================================================================="
 
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+    - name: Validate locked sources
+      env:
+        EXPECTED_SHA: ${{ inputs.expected_sha }}
+      run: |
+        set -euo pipefail
+        if [ -n "$EXPECTED_SHA" ]; then
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+        fi
+        python3 scripts/source-lock.py validate sources.lock
+        python3 scripts/source-lock.py env sources.lock >> "$GITHUB_ENV"
+        echo "SOURCE_LOCK_FILE=$GITHUB_WORKSPACE/sources.lock" >> "$GITHUB_ENV"
 
     - name: Initialization environment
       env:
@@ -103,18 +129,22 @@ jobs:
         sudo -E apt-get -qq update
         sudo add-apt-repository universe
         sudo apt-get update
-        sudo -E apt-get -qq install $(curl -fsSL raw.githubusercontent.com/wekingchen/my-file/master/depends-ubuntuLTS)
+        read -r -a BUILD_DEPENDENCIES < "$GITHUB_WORKSPACE/build-support/depends-ubuntuLTS"
+        sudo -E apt-get -qq install "${BUILD_DEPENDENCIES[@]}"
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo chown $USER:$GROUPS $GITHUB_WORKSPACE
+        sudo chown "$USER:$(id -gn)" "$GITHUB_WORKSPACE"
 
     - name: Clone source code
       working-directory: ./
       run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /openwrt $GITHUB_WORKSPACE/openwrt
+        set -euo pipefail
+        df -hT "$PWD"
+        git clone --branch "$BUILDER_BRANCH" --single-branch "$BUILDER_REPO" openwrt
+        git -C openwrt checkout --detach "$BUILDER_REV"
+        test "$(git -C openwrt rev-parse HEAD)" = "$BUILDER_REV"
+        ln -sf /openwrt "$GITHUB_WORKSPACE/openwrt"
         cd openwrt
         git config --global user.email "you@example.com"
         git config --global user.name "Your Name"
@@ -144,8 +174,8 @@ jobs:
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      uses: P3TERX/ssh2actions@71006b93bff498b020448ac10964f8a5d0f9f32c
+      if: inputs.ssh || contains(github.event.action, 'ssh')
       env:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -182,10 +212,12 @@ jobs:
         awk 'BEGIN { RS="" } /(^|\n)Package: luci-app-passwall(\n|$)/ || /(^|\n)Package: xray-core(\n|$)/ { print }' "$PASSWALL_STATUS"
         PASSWALL_VERSION=$(awk 'BEGIN { RS=""; FS="\n" } /(^|\n)Package: luci-app-passwall(\n|$)/ { for (i = 1; i <= NF; i++) if ($i ~ /^Version: /) { sub(/^Version: /, "", $i); print $i; exit } }' "$PASSWALL_STATUS")
         XRAY_VERSION=$(awk 'BEGIN { RS=""; FS="\n" } /(^|\n)Package: xray-core(\n|$)/ { for (i = 1; i <= NF; i++) if ($i ~ /^Version: /) { sub(/^Version: /, "", $i); print $i; exit } }' "$PASSWALL_STATUS")
-        test -n "$PASSWALL_VERSION"
-        test -n "$XRAY_VERSION"
+        test "$PASSWALL_VERSION" = "${PASSWALL_PKG_VERSION}-${PASSWALL_PKG_RELEASE}"
+        test "$XRAY_VERSION" = "${XRAY_PKG_VERSION}-${XRAY_PKG_RELEASE}"
         echo "PASSWALL_VERSION=$PASSWALL_VERSION" >> "$GITHUB_ENV"
         echo "XRAY_VERSION=$XRAY_VERSION" >> "$GITHUB_ENV"
+        echo "passwall_version=$PASSWALL_VERSION" >> "$GITHUB_OUTPUT"
+        echo "xray_version=$XRAY_VERSION" >> "$GITHUB_OUTPUT"
         # make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
@@ -214,81 +246,73 @@ jobs:
       run: df -hT
 
     - name: Upload bin directory
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/openwrt-18.06/siflower/openwrt-18.06/bin
+        retention-days: 7
+        if-no-files-found: error
 
-    - name: Organize files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/openwrt-18.06/siflower/openwrt-18.06/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+  publish:
+    needs: build
+    if: needs.build.outputs.status == 'success' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_release)
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout locked metadata
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+      - name: Download compiled firmware
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: OpenWrt_bin*
+          path: firmware-bin
+          merge-multiple: true
 
-    - name: Upload firmware to cowtransfer
-      id: cowtransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
-        echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
-        echo "url=$(cat cowtransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
+      - name: Generate release information
+        id: tag
+        env:
+          PASSWALL_VERSION: ${{ needs.build.outputs.passwall_version }}
+          XRAY_VERSION: ${{ needs.build.outputs.xray_version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/source-lock.py validate sources.lock
+          # shellcheck source=/dev/null
+          source sources.lock
+          echo "release_tag=$(TZ=Asia/Shanghai date +"%Y.%m.%d-%H%M")" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Package versions"
+            echo
+            echo "- PassWall: \`$PASSWALL_VERSION\`"
+            echo "- Xray-core: \`$XRAY_VERSION\`"
+            echo "- PassWall source: \`$PASSWALL_REV\`"
+            echo "- PWpackages source: \`$PWPACKAGES_REV\`"
+            echo "- Go toolchain source: \`$GOLANG_REV\`"
+          } > release.txt
 
-    - name: Upload firmware to WeTransfer
-      id: wetransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: firmware-bin/targets/siflower/openwrt-*squashfs*
+          fail_on_unmatched_files: true
 
-    - name: Generate release tag
-      id: tag
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "## Package versions" >> release.txt
-        echo >> release.txt
-        echo "- PassWall: \`$PASSWALL_VERSION\`" >> release.txt
-        echo "- Xray-core: \`$XRAY_VERSION\`" >> release.txt
-        [ $UPLOAD_COWTRANSFER = true ] && echo "🔗 [Cowtransfer](${{ steps.cowtransfer.outputs.url }})" >> release.txt
-        [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
+      - name: Delete old workflow runs
+        uses: wekingchen/delete-workflow-runs@18cc2e8a00d8f622c2e7a882dee2854329609526
+        with:
+          retain_days: 30
+          keep_minimum_runs: 10
 
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v3
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: /home/runner/work/Actions-SFT1200/Actions-SFT1200/openwrt/openwrt-18.06/siflower/openwrt-18.06/bin/targets/siflower/openwrt-*squashfs*
-
-    - name: Delete workflow runs
-      uses: wekingchen/delete-workflow-runs@main
-      with:
-        retain_days: 30
-        keep_minimum_runs: 10
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 10
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove old releases
+        uses: dev-drprasad/delete-older-releases@dfbe6be2a006e9475dfcbe5b8d201f1824c2a9fe
+        with:
+          keep_latest: 10
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

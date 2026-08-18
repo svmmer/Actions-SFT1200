@@ -1,53 +1,191 @@
-name: PassWall and Xray Version Checker
+name: Validate and promote upstream updates
 
 on:
   workflow_dispatch:
   schedule:
-    # Lightweight version check every 12 hours.
+    # Check twice daily; production stays on sources.lock until a full build passes.
     - cron: '40 */12 * * *'
 
 permissions:
   actions: write
-  contents: read
+  contents: write
+
+concurrency:
+  group: validated-source-updater
+  cancel-in-progress: false
 
 jobs:
-  check:
+  update:
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
     steps:
-      - name: Read upstream versions
-        id: versions
+      - name: Checkout stable main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create locked update candidate
+        id: candidate
         shell: bash
         run: |
           set -euo pipefail
-          PASSWALL_MAKEFILE=$(curl -fsSL \
-            https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall/main/luci-app-passwall/Makefile)
-          XRAY_MAKEFILE=$(curl -fsSL \
-            https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/main/xray-core/Makefile)
-          PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$PASSWALL_MAKEFILE" | head -n1)
-          XRAY_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$XRAY_MAKEFILE" | head -n1)
-          test -n "$PASSWALL_VERSION"
-          test -n "$XRAY_VERSION"
-          echo "passwall=$PASSWALL_VERSION" >> "$GITHUB_OUTPUT"
-          echo "xray=$XRAY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "PassWall: $PASSWALL_VERSION"
-          echo "Xray: $XRAY_VERSION"
+          python3 scripts/source-lock.py validate sources.lock
+          # shellcheck source=/dev/null
+          source sources.lock
 
-      - name: Check whether either version changed
-        id: version-cache
-        uses: actions/cache@v4
-        with:
-          path: .upstream-version-marker
-          key: upstream-v2-passwall-${{ steps.versions.outputs.passwall }}-xray-${{ steps.versions.outputs.xray }}
+          remote_head() {
+            local repository="$1"
+            local branch="$2"
+            local revision
+            revision=$(git ls-remote "$repository" "refs/heads/$branch" | awk 'NR == 1 { print $1 }')
+            [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+            printf '%s\n' "$revision"
+          }
 
-      - name: Save current version marker
-        if: steps.version-cache.outputs.cache-hit != 'true'
-        run: |
-          printf 'PassWall=%s\nXray=%s\n' \
-            '${{ steps.versions.outputs.passwall }}' \
-            '${{ steps.versions.outputs.xray }}' > .upstream-version-marker
+          NEW_PASSWALL_REV=$(remote_head "$PASSWALL_REPO" "$PASSWALL_BRANCH")
+          NEW_PWPACKAGES_REV=$(remote_head "$PWPACKAGES_REPO" "$PWPACKAGES_BRANCH")
+          NEW_GOLANG_REV=$(remote_head "$GOLANG_REPO" "$GOLANG_BRANCH")
 
-      - name: Trigger firmware build for new version
-        if: steps.version-cache.outputs.cache-hit != 'true'
+          PASSWALL_MAKEFILE=$(curl --retry 3 --retry-all-errors -fsSL \
+            "https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall/${NEW_PASSWALL_REV}/luci-app-passwall/Makefile")
+          XRAY_MAKEFILE=$(curl --retry 3 --retry-all-errors -fsSL \
+            "https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/${NEW_PWPACKAGES_REV}/xray-core/Makefile")
+
+          NEW_PASSWALL_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$PASSWALL_MAKEFILE" | head -n1)
+          NEW_PASSWALL_RELEASE=$(sed -n 's/^PKG_RELEASE:=//p' <<< "$PASSWALL_MAKEFILE" | head -n1)
+          NEW_XRAY_VERSION=$(sed -n 's/^PKG_VERSION:=//p' <<< "$XRAY_MAKEFILE" | head -n1)
+          NEW_XRAY_RELEASE=$(sed -n 's/^PKG_RELEASE:=//p' <<< "$XRAY_MAKEFILE" | head -n1)
+          test -n "$NEW_PASSWALL_VERSION"
+          test -n "$NEW_PASSWALL_RELEASE"
+          test -n "$NEW_XRAY_VERSION"
+          test -n "$NEW_XRAY_RELEASE"
+
+          if [ "$NEW_PASSWALL_REV" = "$PASSWALL_REV" ] && \
+             [ "$NEW_PWPACKAGES_REV" = "$PWPACKAGES_REV" ] && \
+             [ "$NEW_GOLANG_REV" = "$GOLANG_REV" ] && \
+             [ "$NEW_PASSWALL_VERSION" = "$PASSWALL_PKG_VERSION" ] && \
+             [ "$NEW_PASSWALL_RELEASE" = "$PASSWALL_PKG_RELEASE" ] && \
+             [ "$NEW_XRAY_VERSION" = "$XRAY_PKG_VERSION" ] && \
+             [ "$NEW_XRAY_RELEASE" = "$XRAY_PKG_RELEASE" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream source changes." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          BASE_SHA=$(git rev-parse HEAD)
+          CANDIDATE_BRANCH=automation/source-update
+          git switch -C "$CANDIDATE_BRANCH"
+          python3 scripts/source-lock.py update sources.lock \
+            "PASSWALL_REV=$NEW_PASSWALL_REV" \
+            "PWPACKAGES_REV=$NEW_PWPACKAGES_REV" \
+            "GOLANG_REV=$NEW_GOLANG_REV" \
+            "PASSWALL_PKG_VERSION=$NEW_PASSWALL_VERSION" \
+            "PASSWALL_PKG_RELEASE=$NEW_PASSWALL_RELEASE" \
+            "XRAY_PKG_VERSION=$NEW_XRAY_VERSION" \
+            "XRAY_PKG_RELEASE=$NEW_XRAY_RELEASE"
+          python3 scripts/source-lock.py validate sources.lock
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sources.lock
+          git commit -m "chore: update validated proxy sources"
+          CANDIDATE_SHA=$(git rev-parse HEAD)
+
+          REMOTE_CANDIDATE=$(git ls-remote origin "refs/heads/$CANDIDATE_BRANCH" | awk 'NR == 1 { print $1 }')
+          if [ -n "$REMOTE_CANDIDATE" ]; then
+            git push \
+              --force-with-lease="refs/heads/$CANDIDATE_BRANCH:$REMOTE_CANDIDATE" \
+              origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          else
+            git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          fi
+
+          {
+            echo "changed=true"
+            echo "base_sha=$BASE_SHA"
+            echo "branch=$CANDIDATE_BRANCH"
+            echo "sha=$CANDIDATE_SHA"
+            echo "passwall_version=${NEW_PASSWALL_VERSION}-${NEW_PASSWALL_RELEASE}"
+            echo "xray_version=${NEW_XRAY_VERSION}-${NEW_XRAY_RELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Candidate source update"
+            echo
+            echo "- PassWall: \`${NEW_PASSWALL_VERSION}-${NEW_PASSWALL_RELEASE}\` (\`${NEW_PASSWALL_REV}\`)"
+            echo "- Xray-core: \`${NEW_XRAY_VERSION}-${NEW_XRAY_RELEASE}\` (\`${NEW_PWPACKAGES_REV}\`)"
+            echo "- Go toolchain: \`${NEW_GOLANG_REV}\`"
+            echo
+            echo "Stable main is unchanged until the candidate firmware succeeds."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the full candidate firmware build
+        if: steps.candidate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build-openwrt.yml --repo "${{ github.repository }}" --ref main
+          CANDIDATE_BRANCH: ${{ steps.candidate.outputs.branch }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-openwrt.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$CANDIDATE_BRANCH" \
+            -f ssh=false \
+            -f publish_release=false \
+            -f "expected_sha=$CANDIDATE_SHA"
+
+          RUN_ID=""
+          for attempt in $(seq 1 30); do
+            RUN_ID=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build-openwrt.yml \
+              --commit "$CANDIDATE_SHA" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+            [ -n "$RUN_ID" ] && break
+            echo "Waiting for candidate run registration ($attempt/30)"
+            sleep 2
+          done
+          test -n "$RUN_ID"
+          echo "Candidate build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          gh run watch "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --compact \
+            --exit-status \
+            --interval 30
+
+      - name: Promote the validated lock and start production build
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ steps.candidate.outputs.base_sha }}
+          CANDIDATE_BRANCH: ${{ steps.candidate.outputs.branch }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main
+          CURRENT_MAIN=$(git rev-parse origin/main)
+          if [ "$CURRENT_MAIN" != "$BASE_SHA" ]; then
+            echo "main advanced from $BASE_SHA to $CURRENT_MAIN; refusing a stale promotion" >&2
+            exit 1
+          fi
+
+          git push origin "${CANDIDATE_SHA}:refs/heads/main"
+          git push \
+            --force-with-lease="refs/heads/$CANDIDATE_BRANCH:$CANDIDATE_SHA" \
+            origin --delete "$CANDIDATE_BRANCH" || true
+          gh workflow run build-openwrt.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f ssh=false \
+            -f publish_release=true \
+            -f "expected_sha=$CANDIDATE_SHA"
+
+          {
+            echo
+            echo "Candidate firmware passed. The lock was fast-forwarded to main,"
+            echo "and a production release build was dispatched."
+          } >> "$GITHUB_STEP_SUMMARY"
