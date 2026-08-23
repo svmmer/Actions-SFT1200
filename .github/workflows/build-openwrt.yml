@@ -88,19 +88,10 @@ jobs:
         npm_clean: "True"
         os_swap: "True"
 
-    - name: Freeing up disk space
-      uses: wekingchen/maximize-build-space@1c1530a36b461912708c22fee2eae0a6353052eb
-      with: 
-        root-reserve-mb: 2048
-        swap-size-mb: 1
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
-        remove-docker-images: 'true'
-
     - name: Free up disk space complete
       run: |
+        # Keep the workspace on the root filesystem. Repartitioning the free
+        # space into a workspace LVM starves apt/dpkg of root filesystem space.
         echo "Free up disk space complete"
         echo "=============================================================================="
         df -hT
