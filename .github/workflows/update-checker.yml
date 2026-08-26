@@ -166,12 +166,58 @@ jobs:
           CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
         run: |
           set -euo pipefail
+
+          assert_locked_revision_on_branch() {
+            local name="$1"
+            local repository="$2"
+            local branch="$3"
+            local revision="$4"
+            local graph="$GUARD_ROOT/$name"
+            local current
+
+            git init --quiet --bare "$graph"
+            # Keep the complete reachable commit graph. Filtering out trees
+            # and blobs makes this cheap without introducing shallow-history
+            # false negatives.
+            if ! git -C "$graph" fetch --quiet --no-tags --filter=tree:0 \
+              "$repository" "refs/heads/$branch"; then
+              echo "Unable to inspect $name upstream history" >&2
+              return 1
+            fi
+
+            current=$(git -C "$graph" rev-parse FETCH_HEAD)
+            if ! git -C "$graph" cat-file -e "${revision}^{commit}" 2>/dev/null || \
+               ! git -C "$graph" merge-base --is-ancestor "$revision" "$current"; then
+              echo "$name locked revision $revision is no longer in" \
+                "$branch history (current $current); refusing promotion" >&2
+              return 1
+            fi
+
+            echo "$name lock remains in $branch history at $current"
+          }
+
+          python3 scripts/source-lock.py validate sources.lock
+          # shellcheck source=/dev/null
+          source sources.lock
+          GUARD_ROOT=$(mktemp -d "$RUNNER_TEMP/source-guard.XXXXXX")
+          trap 'rm -rf "$GUARD_ROOT"' EXIT
+
           git fetch origin main:refs/remotes/origin/main
           CURRENT_MAIN=$(git rev-parse origin/main)
           if [ "$CURRENT_MAIN" != "$BASE_SHA" ]; then
             echo "main advanced from $BASE_SHA to $CURRENT_MAIN; refusing a stale promotion" >&2
             exit 1
           fi
+
+          # A candidate can finish from an exact SHA even if an upstream
+          # force-push removed that commit during the build. Do not promote
+          # such a temporary, garbage-collectable lock to stable main.
+          assert_locked_revision_on_branch \
+            PassWall "$PASSWALL_REPO" "$PASSWALL_BRANCH" "$PASSWALL_REV"
+          assert_locked_revision_on_branch \
+            PWpackages "$PWPACKAGES_REPO" "$PWPACKAGES_BRANCH" "$PWPACKAGES_REV"
+          assert_locked_revision_on_branch \
+            Go "$GOLANG_REPO" "$GOLANG_BRANCH" "$GOLANG_REV"
 
           git push origin "${CANDIDATE_SHA}:refs/heads/main"
           git push \

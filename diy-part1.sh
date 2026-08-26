@@ -46,3 +46,25 @@ sed -i -E \
 } >> feeds.conf.default
 
 ./scripts/feeds clean
+
+# The legacy feeds helper clones advertised refs before checking out a pinned
+# revision. If an upstream force-push removes that revision from its refs
+# between lock creation and the candidate build, the clone cannot check it
+# out even while GitHub still serves the object by its full SHA. Seed the two
+# automatically updated feeds with an exact-SHA fetch so the feeds helper can
+# reuse the detached checkout without following a moving branch.
+prefetch_locked_feed() {
+  local name="$1"
+  local repository="$2"
+  local revision="$3"
+  local destination="./feeds/$name"
+
+  git init -q "$destination"
+  git -C "$destination" remote add origin "$repository"
+  git -C "$destination" fetch -q --depth=1 origin "$revision"
+  git -C "$destination" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
+  test "$(git -C "$destination" rev-parse HEAD)" = "$revision"
+}
+
+prefetch_locked_feed PWpackages "$PWPACKAGES_REPO" "$PWPACKAGES_REV"
+prefetch_locked_feed PWluci "$PASSWALL_REPO" "$PASSWALL_REV"
