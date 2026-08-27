@@ -23,10 +23,10 @@ PACKAGES2_REPO=https://github.com/coolsnowwolf/packages.git
 PACKAGES2_REV=510dd6d4b9ea538c052ab743740e426da7d10ef1
 PWPACKAGES_REPO=https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git
 PWPACKAGES_BRANCH=main
-PWPACKAGES_REV=a8302d598ca54cda22f7fe76fa553b3df034f8ae
+PWPACKAGES_REV=e13e4631699ef9f0e826d36d3be56a67a82924c9
 PASSWALL_REPO=https://github.com/Openwrt-Passwall/openwrt-passwall.git
 PASSWALL_BRANCH=main
-PASSWALL_REV=f2330bb1f9201fa0eee4369121ae35a9e35e0135
+PASSWALL_REV=244af3d59907112c78a69a5beb855c1a27eacdda
 HELLOWORLD_REPO=https://github.com/fw876/helloworld.git
 HELLOWORLD_REV=2abdc9aa9e19607774dc9789709212b70b8607c6
 
