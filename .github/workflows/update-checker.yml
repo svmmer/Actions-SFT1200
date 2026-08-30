@@ -3,7 +3,7 @@ name: Validate and promote upstream updates
 on:
   workflow_dispatch:
   schedule:
-    # Check twice daily; production stays on sources.lock until a full build passes.
+    # Version checks are cheap; firmware builds run only for a new PassWall or Xray release.
     - cron: '40 */12 * * *'
 
 permissions:
@@ -24,6 +24,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+
+      - name: Test the proxy version update gate
+        run: python3 -m unittest -v tests/test_source_lock_update_gate.py
 
       - name: Create locked update candidate
         id: candidate
@@ -61,15 +64,26 @@ jobs:
           test -n "$NEW_XRAY_VERSION"
           test -n "$NEW_XRAY_RELEASE"
 
-          if [ "$NEW_PASSWALL_REV" = "$PASSWALL_REV" ] && \
-             [ "$NEW_PWPACKAGES_REV" = "$PWPACKAGES_REV" ] && \
-             [ "$NEW_GOLANG_REV" = "$GOLANG_REV" ] && \
-             [ "$NEW_PASSWALL_VERSION" = "$PASSWALL_PKG_VERSION" ] && \
-             [ "$NEW_PASSWALL_RELEASE" = "$PASSWALL_PKG_RELEASE" ] && \
-             [ "$NEW_XRAY_VERSION" = "$XRAY_PKG_VERSION" ] && \
-             [ "$NEW_XRAY_RELEASE" = "$XRAY_PKG_RELEASE" ]; then
+          UPDATE_NEEDED=$(python3 scripts/source-lock.py proxy-update-needed sources.lock \
+            "PASSWALL_REV=$NEW_PASSWALL_REV" \
+            "PWPACKAGES_REV=$NEW_PWPACKAGES_REV" \
+            "GOLANG_REV=$NEW_GOLANG_REV" \
+            "PASSWALL_PKG_VERSION=$NEW_PASSWALL_VERSION" \
+            "PASSWALL_PKG_RELEASE=$NEW_PASSWALL_RELEASE" \
+            "XRAY_PKG_VERSION=$NEW_XRAY_VERSION" \
+            "XRAY_PKG_RELEASE=$NEW_XRAY_RELEASE")
+
+          if [ "$UPDATE_NEEDED" = false ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No upstream source changes." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## No firmware build needed"
+              echo
+              echo "PassWall and Xray-core versions are unchanged."
+              echo "Revision-only upstream changes do not trigger a build."
+              echo
+              echo "- PassWall: \`${PASSWALL_PKG_VERSION}-${PASSWALL_PKG_RELEASE}\`"
+              echo "- Xray-core: \`${XRAY_PKG_VERSION}-${XRAY_PKG_RELEASE}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 

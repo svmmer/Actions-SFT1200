@@ -69,6 +69,12 @@ VERSION_KEYS = {
     "XRAY_PKG_RELEASE",
 }
 
+PROXY_UPDATE_CANDIDATE_KEYS = VERSION_KEYS | {
+    "PASSWALL_REV",
+    "PWPACKAGES_REV",
+    "GOLANG_REV",
+}
+
 DIGEST_KEYS = {"LIBS_ZIP_SHA256", "BOARD_BLOB_SHA256"}
 REQUIRED_KEYS = (
     {"LOCK_SCHEMA"}
@@ -174,7 +180,10 @@ def update_lock(path: Path, assignments: list[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("validate", "env", "get", "update"))
+    parser.add_argument(
+        "command",
+        choices=("validate", "env", "get", "update", "proxy-update-needed"),
+    )
     parser.add_argument("lock_file", type=Path)
     parser.add_argument("arguments", nargs="*")
     args = parser.parse_args()
@@ -200,6 +209,28 @@ def main() -> int:
             if key not in values:
                 raise LockError(f"unknown key {key}")
             print(values[key])
+        elif args.command == "proxy-update-needed":
+            updates: dict[str, str] = {}
+            for assignment in args.arguments:
+                if "=" not in assignment:
+                    raise LockError(
+                        f"invalid candidate {assignment!r}; expected KEY=VALUE"
+                    )
+                key, value = assignment.split("=", 1)
+                if key not in PROXY_UPDATE_CANDIDATE_KEYS:
+                    raise LockError(f"unknown candidate key {key}")
+                if key in updates:
+                    raise LockError(f"duplicate candidate key {key}")
+                updates[key] = value
+
+            missing = sorted(PROXY_UPDATE_CANDIDATE_KEYS - updates.keys())
+            if missing:
+                raise LockError(f"missing candidate keys: {', '.join(missing)}")
+
+            candidate = values | updates
+            validate(candidate)
+            changed = any(candidate[key] != values[key] for key in VERSION_KEYS)
+            print("true" if changed else "false")
         elif args.command == "validate":
             if args.arguments:
                 raise LockError("validate does not accept extra arguments")

@@ -16,13 +16,19 @@ PWpackages/Xray, Go toolchain, and directly cloned packages are all checked
 against full commit SHAs. Small compatibility files and the existing binary
 inputs are kept in this repository and verified before use.
 
-The `Validate and promote upstream updates` workflow checks PassWall,
-PWpackages, and the Go toolchain twice a day. It updates an automation-owned
-candidate branch and runs the complete firmware build without publishing a
-Release. Only a successful candidate is fast-forwarded to `main`; the workflow
-then starts a production Release build. A failed candidate leaves both
-`sources.lock` and the last working production firmware unchanged and is
-retried on the next check.
+The `Validate and promote upstream updates` workflow checks the current
+PassWall and Xray-core package version-release pairs twice a day. Revision-only
+changes in PassWall, PWpackages, or the Go toolchain do not trigger a firmware
+build. When either package version-release changes, the workflow records the
+latest related revisions on an automation-owned candidate branch and runs the
+complete firmware build without publishing a Release. Only a successful
+candidate is fast-forwarded to `main`; the workflow then starts a production
+Release build. A failed candidate leaves both `sources.lock` and the last
+working production firmware unchanged and is retried on the next check.
+
+The canonical firmware workflow has no independent schedule or repository
+dispatch trigger. It runs automatically only through the version-gated updater;
+`workflow_dispatch` remains available for an intentional manual build.
 
 This design prevents floating upstream branches from breaking scheduled
 production builds. It is reproducible, but not fully offline: Git repositories
