@@ -25,8 +25,11 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Test the proxy version update gate
-        run: python3 -m unittest -v tests/test_source_lock_update_gate.py
+      - name: Test source update selection
+        run: >-
+          python3 -m unittest -v
+          tests/test_source_lock_update_gate.py
+          tests/test_go_toolchain.py
 
       - name: Create locked update candidate
         id: candidate
@@ -42,13 +45,15 @@ jobs:
             local branch="$2"
             local revision
             revision=$(git ls-remote "$repository" "refs/heads/$branch" | awk 'NR == 1 { print $1 }')
-            [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+            if ! [[ "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Unable to resolve $repository branch $branch" >&2
+              return 1
+            fi
             printf '%s\n' "$revision"
           }
 
           NEW_PASSWALL_REV=$(remote_head "$PASSWALL_REPO" "$PASSWALL_BRANCH")
           NEW_PWPACKAGES_REV=$(remote_head "$PWPACKAGES_REPO" "$PWPACKAGES_BRANCH")
-          NEW_GOLANG_REV=$(remote_head "$GOLANG_REPO" "$GOLANG_BRANCH")
 
           PASSWALL_MAKEFILE=$(curl --retry 3 --retry-all-errors -fsSL \
             "https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall/${NEW_PASSWALL_REV}/luci-app-passwall/Makefile")
@@ -63,10 +68,33 @@ jobs:
           test -n "$NEW_PASSWALL_RELEASE"
           test -n "$NEW_XRAY_VERSION"
           test -n "$NEW_XRAY_RELEASE"
+          [[ "$NEW_XRAY_VERSION" =~ ^[0-9][0-9A-Za-z.+~_-]*$ ]]
+
+          # Xray periodically raises the minimum Go version. Select the matching
+          # sbwml feed branch before spending more than an hour on a build that
+          # the old toolchain cannot complete.
+          XRAY_GO_MOD=$(curl --retry 3 --retry-all-errors -fsSL \
+            "https://raw.githubusercontent.com/XTLS/Xray-core/v${NEW_XRAY_VERSION}/go.mod")
+          NEW_XRAY_GO_VERSION=$(awk '$1 == "go" { print $2; exit }' <<< "$XRAY_GO_MOD")
+          test -n "$NEW_XRAY_GO_VERSION"
+          NEW_GOLANG_BRANCH=$(python3 scripts/go-toolchain.py branch "$NEW_XRAY_GO_VERSION")
+          NEW_GOLANG_REV=$(remote_head "$GOLANG_REPO" "$NEW_GOLANG_BRANCH")
+
+          GOLANG_REPOSITORY=${GOLANG_REPO#https://github.com/}
+          GOLANG_REPOSITORY=${GOLANG_REPOSITORY%.git}
+          GOLANG_MAKEFILE=$(curl --retry 3 --retry-all-errors -fsSL \
+            "https://raw.githubusercontent.com/${GOLANG_REPOSITORY}/${NEW_GOLANG_REV}/golang/Makefile")
+          NEW_GOLANG_MAJOR_MINOR=$(sed -n 's/^GO_VERSION_MAJOR_MINOR:=[[:space:]]*//p' <<< "$GOLANG_MAKEFILE" | head -n1)
+          NEW_GOLANG_PATCH=$(sed -n 's/^GO_VERSION_PATCH:=[[:space:]]*//p' <<< "$GOLANG_MAKEFILE" | head -n1)
+          test -n "$NEW_GOLANG_MAJOR_MINOR"
+          NEW_GOLANG_VERSION="${NEW_GOLANG_MAJOR_MINOR}${NEW_GOLANG_PATCH:+.$NEW_GOLANG_PATCH}"
+          python3 scripts/go-toolchain.py check \
+            "$NEW_XRAY_GO_VERSION" "$NEW_GOLANG_VERSION"
 
           UPDATE_NEEDED=$(python3 scripts/source-lock.py proxy-update-needed sources.lock \
             "PASSWALL_REV=$NEW_PASSWALL_REV" \
             "PWPACKAGES_REV=$NEW_PWPACKAGES_REV" \
+            "GOLANG_BRANCH=$NEW_GOLANG_BRANCH" \
             "GOLANG_REV=$NEW_GOLANG_REV" \
             "PASSWALL_PKG_VERSION=$NEW_PASSWALL_VERSION" \
             "PASSWALL_PKG_RELEASE=$NEW_PASSWALL_RELEASE" \
@@ -93,6 +121,7 @@ jobs:
           python3 scripts/source-lock.py update sources.lock \
             "PASSWALL_REV=$NEW_PASSWALL_REV" \
             "PWPACKAGES_REV=$NEW_PWPACKAGES_REV" \
+            "GOLANG_BRANCH=$NEW_GOLANG_BRANCH" \
             "GOLANG_REV=$NEW_GOLANG_REV" \
             "PASSWALL_PKG_VERSION=$NEW_PASSWALL_VERSION" \
             "PASSWALL_PKG_RELEASE=$NEW_PASSWALL_RELEASE" \
@@ -129,7 +158,7 @@ jobs:
             echo
             echo "- PassWall: \`${NEW_PASSWALL_VERSION}-${NEW_PASSWALL_RELEASE}\` (\`${NEW_PASSWALL_REV}\`)"
             echo "- Xray-core: \`${NEW_XRAY_VERSION}-${NEW_XRAY_RELEASE}\` (\`${NEW_PWPACKAGES_REV}\`)"
-            echo "- Go toolchain: \`${NEW_GOLANG_REV}\`"
+            echo "- Go toolchain: \`${NEW_GOLANG_VERSION}\` (\`${NEW_GOLANG_BRANCH}\` at \`${NEW_GOLANG_REV}\`)"
             echo
             echo "Stable main is unchanged until the candidate firmware succeeds."
           } >> "$GITHUB_STEP_SUMMARY"

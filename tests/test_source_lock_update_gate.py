@@ -17,6 +17,7 @@ SOURCE_LOCK_SCRIPT = REPOSITORY_ROOT / "scripts" / "source-lock.py"
 BASELINE = {
     "PASSWALL_REV": "a" * 40,
     "PWPACKAGES_REV": "b" * 40,
+    "GOLANG_BRANCH": "26.x",
     "GOLANG_REV": "c" * 40,
     "PASSWALL_PKG_VERSION": "26.8.26",
     "PASSWALL_PKG_RELEASE": "1",
@@ -45,6 +46,7 @@ class ProxyUpdateGateTests(unittest.TestCase):
         candidate = {
             "PASSWALL_REV": "d" * 40,
             "PWPACKAGES_REV": "e" * 40,
+            "GOLANG_BRANCH": BASELINE["GOLANG_BRANCH"],
             "GOLANG_REV": "f" * 40,
             **{
                 key: BASELINE[key]
@@ -72,6 +74,12 @@ class ProxyUpdateGateTests(unittest.TestCase):
 
     def test_revision_only_changes_do_not_trigger_firmware_build(self) -> None:
         result = self.run_gate()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "false\n")
+
+    def test_go_branch_change_alone_does_not_trigger_firmware_build(self) -> None:
+        result = self.run_gate(GOLANG_BRANCH="27.x")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "false\n")

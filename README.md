@@ -20,11 +20,13 @@ The `Validate and promote upstream updates` workflow checks the current
 PassWall and Xray-core package version-release pairs twice a day. Revision-only
 changes in PassWall, PWpackages, or the Go toolchain do not trigger a firmware
 build. When either package version-release changes, the workflow records the
-latest related revisions on an automation-owned candidate branch and runs the
-complete firmware build without publishing a Release. Only a successful
-candidate is fast-forwarded to `main`; the workflow then starts a production
-Release build. A failed candidate leaves both `sources.lock` and the last
-working production firmware unchanged and is retried on the next check.
+latest related revisions on an automation-owned candidate branch. It reads
+Xray's minimum Go version, selects the matching `packages_lang_golang` branch,
+and verifies that toolchain before running the complete firmware build without
+publishing a Release. Only a successful candidate is fast-forwarded to `main`;
+the workflow then starts a production Release build. A failed candidate leaves
+both `sources.lock` and the last working production firmware unchanged and is
+retried on the next check.
 
 The canonical firmware workflow has no independent schedule or repository
 dispatch trigger. It runs automatically only through the version-gated updater;
